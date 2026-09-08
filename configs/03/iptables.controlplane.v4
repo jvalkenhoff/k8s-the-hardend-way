@@ -1,0 +1,66 @@
+*filter
+
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT DROP [0:0]
+
+# ----------------------------------------------------------------------
+# INPUT
+# ----------------------------------------------------------------------
+
+# Loopback
+-A INPUT -i lo -j ACCEPT
+-A INPUT -s 127.0.0.0/8 ! -i lo -j DROP
+
+# Connection tracking
+-A INPUT -m conntrack --ctstate INVALID -j DROP
+-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+# ICMP
+-A INPUT -p icmp --icmp-type echo-request -m limit --limit 5/sec --limit-burst 10 -j ACCEPT
+
+# SSH from admin host
+-A INPUT -s 172.31.88.1/32 -p tcp --dport 22 -m conntrack --ctstate NEW -j ACCEPT
+
+# Log anything that reaches the default DROP policy
+-A INPUT -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "DROP_CP_IN: "
+
+
+# ----------------------------------------------------------------------
+# FORWARD
+# ----------------------------------------------------------------------
+
+-A FORWARD -m conntrack --ctstate INVALID -j DROP
+-A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+-A FORWARD -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "DROP_CP_FWD: "
+
+
+# ----------------------------------------------------------------------
+# OUTPUT
+# ----------------------------------------------------------------------
+
+# Loopback
+-A OUTPUT -o lo -j ACCEPT
+
+# Connection tracking
+-A OUTPUT -m conntrack --ctstate INVALID -j DROP
+-A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+# ICMP
+-A OUTPUT -p icmp -j ACCEPT
+
+# DNS
+-A OUTPUT -p udp --dport 53 -m conntrack --ctstate NEW -j ACCEPT
+-A OUTPUT -p tcp --dport 53 -m conntrack --ctstate NEW -j ACCEPT
+
+# NTP
+-A OUTPUT -p udp --dport 123 -m conntrack --ctstate NEW -j ACCEPT
+
+# HTTPS
+-A OUTPUT -p tcp --dport 443 -m conntrack --ctstate NEW -j ACCEPT
+
+# Log anything that reaches the default DROP policy
+-A OUTPUT -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "DROP_CP_OUT: "
+
+COMMIT

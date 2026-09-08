@@ -1,0 +1,19 @@
+# controlplane
+[Match]
+Name=ens32
+
+[Network]
+DHCP=no
+Address=172.31.88.10/28
+Gateway=172.31.88.2
+DNS=172.31.88.2
+---
+# node01
+[Match]
+Name=ens32
+
+[Network]
+DHCP=no
+Address=172.31.88.11/28  
+Gateway=172.31.88.2  
+DNS=172.31.88.2
