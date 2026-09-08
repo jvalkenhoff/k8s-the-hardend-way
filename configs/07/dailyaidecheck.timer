@@ -1,0 +1,10 @@
+[Unit]
+Description=Run AIDE filesystem integrity check daily
+
+[Timer]
+OnCalendar=*-*-* 05:00:00
+Persistent=true
+Unit=dailyaidecheck.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,21 @@
+[Unit]
+Description=containerd
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/containerd
+
+[Service]
+Type=notify
+ExecStartPre=/sbin/modprobe overlay
+ExecStart=/usr/local/bin/containerd
+Restart=always
+RestartSec=5
+Delegate=yes
+KillMode=process
+OOMScoreAdjust=-999
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target

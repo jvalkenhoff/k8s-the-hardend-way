@@ -1,0 +1,6 @@
+Name: Apply default user umask
+Default: yes
+Priority: 1024
+Session-Type: Additional
+Session:
+	optional pam_umask.so nousergroups

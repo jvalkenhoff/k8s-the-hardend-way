@@ -1,0 +1,64 @@
+# Mail
+MAIL_DIR        /var/mail
+
+# Logging
+FAILLOG_ENAB           yes
+LOG_UNKFAIL_ENAB       no
+LOG_OK_LOGINS          no
+SYSLOG_SU_ENAB         yes
+SYSLOG_SG_ENAB         yes
+FTMP_FILE              /var/log/btmp
+
+# Login behavior
+LOGIN_RETRIES          5
+LOGIN_TIMEOUT          60
+HUSHLOGIN_FILE         .hushlogin
+DEFAULT_HOME           no
+
+# Environment
+ENV_SUPATH     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV_PATH       PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games
+
+# Terminal settings
+TTYGROUP       tty
+TTYPERM        0600
+ERASECHAR      0177
+KILLCHAR       025
+
+# User/group ID ranges
+UID_MIN                  1000
+UID_MAX                 60000
+SYS_UID_MIN               100
+SYS_UID_MAX               999
+
+GID_MIN                  1000
+GID_MAX                 60000
+SYS_GID_MIN               100
+SYS_GID_MAX               999
+
+# Subordinate ID ranges
+SUB_UID_MIN             100000
+SUB_UID_MAX          600100000
+SUB_UID_COUNT            65536
+
+SUB_GID_MIN             100000
+SUB_GID_MAX          600100000
+SUB_GID_COUNT            65536
+
+# Password aging
+PASS_MAX_DAYS             365
+PASS_MIN_DAYS               1
+PASS_WARN_AGE               7
+
+# Password hashing
+ENCRYPT_METHOD        SHA512
+
+# Default permissions
+UMASK                  027
+
+# User/group behavior
+USERGROUPS_ENAB       yes
+
+# chfn restrictions
+# r = room number, w = work phone, h = home phone
+CHFN_RESTRICT         rwh

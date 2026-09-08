@@ -1,0 +1,4 @@
+#!/bin/sh
+exec tail -n +3 "$0"
+set superusers="grubadmin"
+password_pbkdf2 grubadmin grub.pbkdf2.sha512.REPLACE_WITH_YOUR_HASH

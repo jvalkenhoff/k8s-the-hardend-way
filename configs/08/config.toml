@@ -1,0 +1,52 @@
+version = 4
+
+root = "/var/lib/containerd"
+state = "/run/containerd"
+
+[plugins.'io.containerd.server.v1.grpc']
+  address = "/run/containerd/containerd.sock"
+  uid = 0
+  gid = 0
+
+[plugins.'io.containerd.server.v1.debug']
+  address = ""
+
+[plugins.'io.containerd.server.v1.metrics']
+  address = ""
+
+[plugins.'io.containerd.cri.v1.images']
+  snapshotter = "overlayfs"
+
+  [plugins.'io.containerd.cri.v1.images'.registry]
+    config_path = "/etc/containerd/certs.d"
+
+[plugins.'io.containerd.cri.v1.runtime']
+  disable_cgroup = false
+  disable_apparmor = false
+  unset_seccomp_profile = ""
+  enable_unprivileged_ports = false
+  enable_unprivileged_icmp = false
+  enable_cdi = false
+
+  [plugins.'io.containerd.cri.v1.runtime'.containerd]
+    default_runtime_name = "runc"
+
+    [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc]
+      runtime_type = "io.containerd.runc.v2"
+      privileged_without_host_devices = false
+      privileged_without_host_devices_all_devices_allowed = false
+      cgroup_writable = false
+      base_runtime_spec = ""
+
+      [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+        BinaryName = "/usr/local/sbin/runc"
+        SystemdCgroup = true
+
+[plugins.'io.containerd.grpc.v1.cri']
+  disable_tcp_service = true
+  stream_server_address = "127.0.0.1"
+  stream_server_port = "0"
+  enable_tls_streaming = false
+
+[plugins.'io.containerd.nri.v1.nri']
+  disable = true

@@ -1,0 +1,16 @@
+Defaults env_reset
+Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Run elevated commands through a pseudo-terminal.
+Defaults use_pty
+
+# Record sudo activity in a dedicated log.
+Defaults logfile="/var/log/sudo.log"
+
+# Require re-authentication after no more than 15 minutes.
+Defaults timestamp_timeout=15
+
+root ALL=(ALL:ALL) ALL
+%sudo ALL=(ALL:ALL) ALL
+
+@includedir /etc/sudoers.d
