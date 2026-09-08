@@ -8,13 +8,13 @@
 -f 1
 
 # Privilege-boundary execution, such as a SUID program.
--a always,exit -F arch=b64 -S execve -C euid!=uid -F auid>=$UID_MIN -F auid!=unset -k privilege-use
+-a always,exit -F arch=b64 -S execve -C euid!=uid -F auid>=1000 -F auid!=unset -k privilege-use
 
 # User-initiated changes to time, host identity, mounts, and kernel modules.
--a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -F auid>=$UID_MIN -F auid!=unset -k time-change
--a always,exit -F arch=b64 -S sethostname,setdomainname -F auid>=$UID_MIN -F auid!=unset -k host-identity
--a always,exit -F arch=b64 -S mount -F auid>=$UID_MIN -F auid!=unset -k mounts
--a always,exit -F arch=b64 -S init_module,finit_module,delete_module -F auid>=$UID_MIN -F auid!=unset -k kernel-modules
+-a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -F auid>=1000 -F auid!=unset -k time-change
+-a always,exit -F arch=b64 -S sethostname,setdomainname -F auid>=1000 -F auid!=unset -k host-identity
+-a always,exit -F arch=b64 -S mount -F auid>=1000 -F auid!=unset -k mounts
+-a always,exit -F arch=b64 -S init_module,finit_module,delete_module -F auid>=1000 -F auid!=unset -k kernel-modules
 
 # Privilege and local identity configuration.
 -w /etc/sudoers -p wa -k privilege-config

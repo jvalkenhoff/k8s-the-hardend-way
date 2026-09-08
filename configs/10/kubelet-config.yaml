@@ -1,0 +1,34 @@
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+failSwapOn: true
+authentication:
+  anonymous:
+    enabled: false
+  webhook:
+    enabled: true
+  x509:
+    clientCAFile: /etc/kubernetes/pki/ca.crt
+authorization:
+  mode: Webhook
+readOnlyPort: 0
+rotateCertificates: true
+serverTLSBootstrap: true
+seccompDefault: true
+podPidsLimit: 4096
+clusterDNS:
+  - 10.96.0.10
+clusterDomain: cluster.local
+resolvConf: /run/systemd/resolve/resolv.conf
+makeIPTablesUtilChains: true
+healthzBindAddress: 127.0.0.1
+healthzPort: 10248
+staticPodPath: /etc/kubernetes/manifests
+shutdownGracePeriod: 30s
+shutdownGracePeriodCriticalPods: 10s
+tlsMinVersion: VersionTLS12
+tlsCipherSuites:
+  - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+  - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+  - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+  - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384

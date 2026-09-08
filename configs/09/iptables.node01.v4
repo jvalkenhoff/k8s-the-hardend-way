@@ -22,6 +22,11 @@
 # SSH from admin host
 -A INPUT -s 172.31.88.1/32 -p tcp --dport 22 -m conntrack --ctstate NEW -j ACCEPT
 
+# Kubelet API
+# Only the control plane needs to initiate connections to the worker kubelet.
+-A INPUT -s 172.31.88.10/32 -p tcp --dport 10250 -m conntrack --ctstate NEW -j ACCEPT
+
+
 # Log anything that reaches the default DROP policy
 -A INPUT -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "DROP_WK_IN: "
 
@@ -59,6 +64,9 @@
 
 # HTTPS
 -A OUTPUT -p tcp --dport 443 -m conntrack --ctstate NEW -j ACCEPT
+
+# Kubernetes API server
+-A OUTPUT -d 172.31.88.10/32 -p tcp --dport 6443 -m conntrack --ctstate NEW -j ACCEPT
 
 # Log anything that reaches the default DROP policy
 -A OUTPUT -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "DROP_WK_OUT: "
