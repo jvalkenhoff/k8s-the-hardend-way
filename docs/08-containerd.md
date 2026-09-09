@@ -28,19 +28,19 @@ install -o root -g root -m 0755 /tmp/binaries/runc.amd64 /usr/local/sbin/runc
 ## 8.2 Containerd install
 Download containerd and its checksum:
 ```
-curl -fL -O "https://github.com/containerd/containerd/releases/download/v2.3.1/containerd-2.3.5-linux-amd64.tar.gz" --output-dir /tmp/binaries/
+curl -fL -O "https://github.com/containerd/containerd/releases/download/v2.3.5/containerd-2.3.5-linux-amd64.tar.gz" --output-dir /tmp/binaries/
 
-curl -fL -O "https://github.com/containerd/containerd/releases/download/v2.3.1/containerd-2.3.5-linux-amd64.tar.gz.sha256sum" --output-dir /tmp/binaries
+curl -fL -O "https://github.com/containerd/containerd/releases/download/v2.3.5/containerd-2.3.5-linux-amd64.tar.gz.sha256sum" --output-dir /tmp/binaries
 ```
 
 Verify the checksum:
 ```
-sha256sum -c containerd-2.3.1-linux-amd64.tar.gz.sha256sum
+sha256sum -c containerd-2.3.5-linux-amd64.tar.gz.sha256sum
 ```
 
 Unzip containerd tar:
 ```
-tar -xzf /tmp/binaries/containerd-2.3.1-linux-amd64.tar.gz -C /tmp/binaries --strip-components 1
+tar -xzf /tmp/binaries/containerd-2.3.5-linux-amd64.tar.gz -C /tmp/binaries --strip-components 1
 ```
 
 Setup folder explicitly:

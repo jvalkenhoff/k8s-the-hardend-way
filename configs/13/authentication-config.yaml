@@ -1,0 +1,9 @@
+apiVersion: apiserver.config.k8s.io/v1
+kind: AuthenticationConfiguration
+anonymous:
+  enabled: true
+  conditions:
+    - path: /livez
+    - path: /readyz
+    - path: /healthz
+    - path: /api/v1/namespaces/kube-public/configmaps/cluster-info

@@ -1,0 +1,112 @@
+*filter
+
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT DROP [0:0]
+
+# ----------------------------------------------------------------------
+# INPUT
+# ----------------------------------------------------------------------
+
+# Loopback
+-A INPUT -i lo -j ACCEPT
+-A INPUT -s 127.0.0.0/8 ! -i lo -j DROP
+
+# Connection tracking
+-A INPUT -m conntrack --ctstate INVALID -j DROP
+-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+# ICMP
+-A INPUT -p icmp --icmp-type echo-request -m limit --limit 5/sec --limit-burst 10 -j ACCEPT
+
+# SSH from admin host
+-A INPUT -s 172.31.88.1/32 -p tcp --dport 22 -m conntrack --ctstate NEW -j ACCEPT
+
+# Kubernetes API server
+-A INPUT -s 172.31.88.0/28 -p tcp --dport 6443 -m conntrack --ctstate NEW -j ACCEPT
+
+# Local etcd
+-A INPUT -s 172.31.88.10/32 -p tcp -m multiport --dports 2379,2380 -m conntrack --ctstate NEW -j ACCEPT
+
+# Kubelet API
+-A INPUT -s 172.31.88.0/28 -p tcp --dport 10250 -m conntrack --ctstate NEW -j ACCEPT
+
+# Calico VXLAN - node01
+-A INPUT -s 172.31.88.11/32 -d 172.31.88.10/32 -p udp --dport 4789 -m conntrack --ctstate NEW -j ACCEPT
+
+# Calico WireGuard - node01
+-A INPUT -s 172.31.88.11/32 -d 172.31.88.10/32 -p udp --dport 51820 -m conntrack --ctstate NEW -j ACCEPT
+
+# Typha INBOUND
+-A INPUT -p tcp -s 172.31.88.11 -d 172.31.88.10 --dport 5473 -m conntrack --ctstate NEW -j ACCEPT
+
+# Log anything that reaches the default DROP policy
+-A INPUT -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "DROP_CP_IN: "
+
+
+# ----------------------------------------------------------------------
+# FORWARD
+# ----------------------------------------------------------------------
+
+-A FORWARD -m conntrack --ctstate INVALID -j DROP
+-A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+# Calico will dynamically insert its own forwarding chains.
+# Do not persist cali-* or KUBE-* chains here.
+
+-A FORWARD -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "DROP_CP_FWD: "
+
+
+# ----------------------------------------------------------------------
+# OUTPUT
+# ----------------------------------------------------------------------
+
+# Loopback
+-A OUTPUT -o lo -j ACCEPT
+
+# Connection tracking
+-A OUTPUT -m conntrack --ctstate INVALID -j DROP
+-A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+# ICMP
+-A OUTPUT -p icmp -j ACCEPT
+
+# DNS
+-A OUTPUT -p udp --dport 53 -m conntrack --ctstate NEW -j ACCEPT
+-A OUTPUT -p tcp --dport 53 -m conntrack --ctstate NEW -j ACCEPT
+
+# NTP
+-A OUTPUT -p udp --dport 123 -m conntrack --ctstate NEW -j ACCEPT
+
+# HTTPS
+-A OUTPUT -p tcp --dport 443 -m conntrack --ctstate NEW -j ACCEPT
+
+# Worker kubelets
+-A OUTPUT -d 172.31.88.11/32 -p tcp --dport 10250 -m conntrack --ctstate NEW -j ACCEPT
+-A OUTPUT -d 172.31.88.12/32 -p tcp --dport 10250 -m conntrack --ctstate NEW -j ACCEPT
+
+# Local etcd
+-A OUTPUT -d 172.31.88.10/32 -p tcp -m multiport --dports 2379,2380 -m conntrack --ctstate NEW -j ACCEPT
+
+# Local API server
+-A OUTPUT -d 172.31.88.10/32 -p tcp --dport 6443 -m conntrack --ctstate NEW -j ACCEPT
+
+# Local kubelet
+-A OUTPUT -d 172.31.88.10/32 -p tcp --dport 10250 -m conntrack --ctstate NEW -j ACCEPT
+
+# Kubernetes host -> locally attached Calico workloads
+#
+# Required with OUTPUT DROP so kubelet can perform
+# readiness/liveness/startup probes against local Pod IPs.
+-A OUTPUT -o cali+ -d 10.244.0.0/16 -m conntrack --ctstate NEW -j ACCEPT
+
+# Calico VXLAN - node01
+-A OUTPUT -s 172.31.88.10/32 -d 172.31.88.11/32 -p udp --dport 4789 -m conntrack --ctstate NEW -j ACCEPT
+
+# Calico WireGuard - node01
+-A OUTPUT -s 172.31.88.10/32 -d 172.31.88.11/32 -p udp --dport 51820 -m conntrack --ctstate NEW -j ACCEPT
+
+# Log anything that reaches the default DROP policy
+-A OUTPUT -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "DROP_CP_OUT: "
+
+COMMIT
