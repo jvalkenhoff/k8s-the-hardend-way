@@ -60,7 +60,7 @@ Service network: 10.96.0.0/12
 - **containerd**: v2.3.x
 - **Calico (CNI)**: v3.32.x
 - **etcd:** v3.6.x
-- **runc:** v1.4.x
+- **runc:** v1.5.x
 
 All VMs are built with **Debian 12.12.x**. It is available in the [Debian Archive](https://cdimage.debian.org/cdimage/archive/12.12.0/amd64/iso-cd/).
 Kubernetes is intentionally left at version 1.35 in order to leave room for upgrade tasks (and upgrade to 1.36)
