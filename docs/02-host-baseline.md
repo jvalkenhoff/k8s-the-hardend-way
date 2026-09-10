@@ -4,7 +4,7 @@
 On each VM, install base packages:
 ```
 apt update && 
-apt install -y bash-completion ca-certificates chrony cron curl debian-archive-keyring dnsutils gpg kmod sudo vim wget
+apt install -y bash-completion ca-certificates chrony cron curl debian-archive-keyring dnsutils gpg sudo vim wget
 ```
 
 ### 2.1 Remove packages
@@ -216,7 +216,7 @@ EOF
 
 Protect the configuration:
 ```bash
-chown root:root /etc/chrony/chrony.con && chmod 0644 /etc/chrony/chrony.conf
+chown root:root /etc/chrony/chrony.conf && chmod 0644 /etc/chrony/chrony.conf
 ```
 
 Enable Chrony:
@@ -241,28 +241,34 @@ Replace the `/etc/fstab`:
 /dev/mapper/vg0-lv_root              /                ext4    errors=remount-ro                                      0       1
 
 # Boot filesystems
-UUID=f553e622-968d-430c-8c0e-a4d23c5b3631  /boot      ext4    defaults                                               0       2
-UUID=6FBE-0064                       /boot/efi        vfat    umask=0077                                             0       1
+UUID=<UUID>  /boot      ext4    defaults                                               0       2
+UUID=<UUID>                       /boot/efi        vfat    umask=0077                                             0       1
 
 # Kubernetes-aware separate filesystems
 /dev/mapper/vg0-lv_home              /home            ext4    defaults,rw,nosuid,nodev,relatime                     0       2
 /dev/mapper/vg0-lv_var               /var             ext4    defaults,rw,nosuid,nodev,relatime                     0       2
-/dev/mapper/vg0-lv_var_lib_etcd      /var/lib/etcd    ext4    defaults,rw,nosuid,nodev,relatime                     0       2
 /dev/mapper/vg0-lv_var_tmp           /var/tmp         ext4    defaults,rw,nosuid,nodev,noexec,relatime              0       2
 /dev/mapper/vg0-lv_var_log           /var/log         ext4    defaults,rw,nosuid,nodev,noexec,relatime              0       2
 /dev/mapper/vg0-lv_var_log_audit     /var/log/audit   ext4    defaults,rw,nosuid,nodev,noexec,relatime              0       2
+/dev/mapper/vg0-lv_var_lib_containerd  /var/lib/containerd  ext4  defaults,rw,nosuid,nodev,relatime  0  2
 
 # Only add this on the Control Plane
-/dev/mapper/vg0-lv_var_lib_containerd  /var/lib/containerd  ext4  defaults,rw,nosuid,nodev,relatime  0  2
+/dev/mapper/vg0-lv_var_lib_etcd      /var/lib/etcd    ext4    defaults,rw,nosuid,nodev,relatime                     0       2
+
 
 # Temporary filesystems
 tmpfs                                /tmp             tmpfs   defaults,rw,nosuid,nodev,noexec,relatime,size=2G,mode=1777  0  0
 tmpfs                                /dev/shm         tmpfs   defaults,rw,nosuid,nodev,noexec,relatime,size=2G,mode=1777  0  0
 ```
 
-Replace the `/boot` and `/boot/efi` UUIDs with the values from the target system, and confirm that every LVM device path matches an existing logical volume. Omit the `/var/lib/etcd` entry on worker nodes that do not host local etcd.
+Replace the `/boot` and `/boot/efi` UUIDs with the values from the target system. The best way to find the UUID:
+```
+lsblk -o NAME,KNAME,PATH,UUID,MOUNTPOINTS
+```
 
-The `size=2G` value is a fixed example. Confirm that it is appropriate for the node's available memory and workload before applying it.
+Copy and paste the corresponding UUID in `/etc/fstab`
+
+Confirm that every LVM device path matches an existing logical volume. Omit the `/var/lib/etcd` entry on worker nodes that do not host local etcd.
 
 Validate the configuration:
 ```bash
