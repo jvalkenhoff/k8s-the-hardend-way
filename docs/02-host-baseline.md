@@ -4,7 +4,7 @@
 On each VM, install base packages:
 ```
 apt update && 
-apt install -y bash-completion ca-certificates chrony cron curl debian-archive-keyring dnsutils gpg sudo vim wget
+apt install -y bash-completion ca-certificates chrony cron curl debian-archive-keyring gpg sudo vim wget
 ```
 
 ### 2.1 Remove packages
