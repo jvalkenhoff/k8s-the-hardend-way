@@ -17,18 +17,14 @@ update-grub
 
 Loaded profiles should be in enforce mode rather than complain mode.
 
-Inspect the current state, then place the installed profiles in enforce mode:
+Inspect the current state:
 ```bash
 aa-status
-aa-enforce /etc/apparmor.d/*
 ```
 
-Enforcing profiles can expose missing policy rules and may prevent an application from starting or accessing required resources. Resolve profile violations in the lab before using the node template in another environment.
 
-Reboot the system:
-```bash
-reboot
-```
+> [!IMPORTANT]
+> Profiles should be in enforce mode. If they are not, leave it as is
 
 Verify that AppArmor is enabled and review the loaded profiles:
 ```bash
