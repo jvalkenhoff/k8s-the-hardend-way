@@ -25,7 +25,10 @@ Apply this to the ones we keep:
 cat > /etc/issue <<'EOF'
 Authorized users only. All activity may be monitored and reported.
 EOF
-  
+```
+
+
+```
 cat > /etc/issue.net <<'EOF'
 Authorized users only. All activity may be monitored and reported.
 EOF
@@ -33,8 +36,7 @@ EOF
 
 Change ownership and permissions:
 ```
-chown root:root /etc/issue /etc/issue.net
-chmod 0644 /etc/issue /etc/issue.net
+chown root:root /etc/issue /etc/issue.net && chmod 0644 /etc/issue /etc/issue.net
 ```
 
 In `/etc/pam.d/login`, comment out the following lines:
@@ -80,7 +82,10 @@ Auth-Type: Primary
 Auth:
  [default=die] pam_faillock.so authfail
 EOF
+```
 
+`faillock`
+```
 cat > /usr/share/pam-configs/faillock_notify <<'EOF'
 Name: Check account lockout before authentication
 Default: yes
@@ -280,8 +285,7 @@ EOF
 
 Set the permissions correctly:
 ```
-chown root:root /etc/login.defs
-chmod 0644 /etc/login.defs
+chown root:root /etc/login.defs && chmod 0644 /etc/login.defs
 ```
 
 Configure accounts to become inaccessible 45 days after password expiration if the password is not changed:
