@@ -48,7 +48,6 @@ chown root:root /etc/kubernetes/config/kubeadm-config.yaml && chmod 0600 /etc/ku
 ```
 ### 10.1.2 Kubelet config
 Build the kubelet config `/etc/kubernetes/config/kubelet-config.yaml`
-
 ```yaml
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
@@ -104,7 +103,7 @@ Permissions:
 chown root:root /etc/kubernetes/config/kube-proxy-config.yaml && chmod 0600 /etc/kubernetes/config/kube-proxy-config.yaml
 ```
 ## 10.2 API Server
-### 10.2.1 Base
+### 10.2.1 Update ClusterConfiguration
 Edit `/etc/kubernetes/config/kubeadm-config.yaml`.
 
 Inside the existing `ClusterConfiguration`, add the following `apiServer:` block:
@@ -114,14 +113,66 @@ apiServer:
     - "172.31.88.10"
     - "controlplane"
   extraArgs:
+    - name: authentication-config
+      value: "/etc/kubernetes/auth/authentication-config.yaml"
     - name: authorization-mode
       value: "Node,RBAC"
     - name: enable-admission-plugins
-      value: "NodeRestriction,DenyServiceExternalIPs,AlwaysPullImages"
+      value: "NodeRestriction,DenyServiceExternalIPs,AlwaysPullImages,EventRateLimit"
+    - name: admission-control-config-file
+      value: "/etc/kubernetes/admission/admission-config.yaml"
     - name: profiling
       value: "false"
-  extraVolumes: {}
+    - name: audit-policy-file
+      value: "/etc/kubernetes/audit/audit-policy.yaml"
+    - name: audit-log-path
+      value: "/var/log/kubernetes/audit/audit.log"
+    - name: audit-log-maxage
+      value: "30"
+    - name: audit-log-maxbackup
+      value: "10"
+    - name: audit-log-maxsize
+      value: "100"
+    - name: encryption-provider-config
+      value: "/etc/kubernetes/encryption/encryption-config.yaml"
+    - name: service-account-lookup
+      value: "true"
+    - name: service-account-extend-token-expiration
+      value: "false"
+    - name: tls-min-version
+      value: "VersionTLS12"
+    - name: tls-cipher-suites
+      value: "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
+  extraVolumes:
+    - name: admission-config
+      hostPath: /etc/kubernetes/admission
+      mountPath: /etc/kubernetes/admission
+      readOnly: true
+      pathType: Directory
+    - name: audit-policy
+      hostPath: /etc/kubernetes/audit
+      mountPath: /etc/kubernetes/audit
+      readOnly: true
+      pathType: Directory
+    - name: audit-log
+      hostPath: /var/log/kubernetes/audit
+      mountPath: /var/log/kubernetes/audit
+      readOnly: false
+      pathType: Directory
+    - name: encryption-config
+      hostPath: /etc/kubernetes/encryption
+      mountPath: /etc/kubernetes/encryption
+      readOnly: true
+      pathType: Directory
+    - name: authentication-config
+      hostPath: /etc/kubernetes/auth
+      mountPath: /etc/kubernetes/auth
+      readOnly: true
+      pathType: Directory
 ```
+
+> [!NOTE]
+> With this setup, the API server expects extra config files. We will configure them now.
 
 ### 10.2.2 Configure Endpoint Authentication
 Allow anonymous auth for health endpoints. Create:
@@ -145,26 +196,6 @@ Permissions:
 ```
 chown root:root /etc/kubernetes/auth/authentication-config.yaml && chmod 0600 /etc/kubernetes/auth/authentication-config.yaml
 ```
-
-Add inside the `extraArgs` block:
-```yaml
-apiServer:
-  extraArgs:
-    - name: authentication-config
-      value: "/etc/kubernetes/auth/authentication-config.yaml"
-```
-
-Add inside the `extraVolumes` block:
-```yaml
-apiServer:
-  extraVolumes:
-    - name: authentication-config
-      hostPath: /etc/kubernetes/auth
-      mountPath: /etc/kubernetes/auth
-      readOnly: true
-      pathType: Directory
-```
-
 ### 10.2.3 Configure rate limit
 Setup rate limits on the cluster. Create:
 ```bash
@@ -202,25 +233,6 @@ Permissions:
 chown root:root /etc/kubernetes/admission/eventratelimit.yaml && chmod 0600 /etc/kubernetes/admission/eventratelimit.yaml
 
 chown root:root /etc/kubernetes/admission/admission-config.yaml && chmod 0600 /etc/kubernetes/admission/admission-config.yaml
-```
-
-Add inside the `extraArgs` block:
-```yaml
-apiServer:
-  extraArgs:
-    - name: admission-control-config-file
-      value: "/etc/kubernetes/admission/admission-config.yaml"
-```
-
-Add inside the `extraVolumes` block:
-```yaml
-apiServer:
-  extraVolumes:
-    - name: admission-config
-      hostPath: /etc/kubernetes/admission
-      mountPath: /etc/kubernetes/admission
-      readOnly: true
-      pathType: Directory
 ```
 
 ### 10.2.4 Configure audit
@@ -293,39 +305,6 @@ Permissions:
 ```
 chown root:root /etc/kubernetes/audit/audit-policy.yaml && chmod 0600 /etc/kubernetes/audit/audit-policy.yaml
 ```
-
-Add inside the `extraArgs` block:
-```yaml
-apiServer:
-  extraArgs:
-    - name: audit-policy-file
-      value: "/etc/kubernetes/audit/audit-policy.yaml"
-    - name: audit-log-path
-      value: "/var/log/kubernetes/audit/audit.log"
-    - name: audit-log-maxage
-      value: "30"
-    - name: audit-log-maxbackup
-      value: "10"
-    - name: audit-log-maxsize
-      value: "100"
-```
-
-Add inside the `extraVolumes` block:
-```yaml
-apiServer:
-  extraVolumes:
-    - name: audit-policy
-      hostPath: /etc/kubernetes/audit
-      mountPath: /etc/kubernetes/audit
-      readOnly: true
-      pathType: Directory
-    - name: audit-log
-      hostPath: /var/log/kubernetes/audit
-      mountPath: /var/log/kubernetes/audit
-      readOnly: false
-      pathType: Directory
-```
-
 ### 10.2.5 Configure Encryption
 Create:
 ```bash
@@ -359,39 +338,10 @@ EOF
 unset ENCRYPTION_KEY
 ```
 
-
 Permissions:
 ```bash
 chown root:root /etc/kubernetes/encryption/encryption-config.yaml && chmod 0600 /etc/kubernetes/encryption/encryption-config.yaml
 ```
-
-Add inside the `extraArgs` block:
-```yaml
-apiServer:
-  extraArgs:
-    - name: encryption-provider-config
-      value: "/etc/kubernetes/encryption/encryption-config.yaml"
-    - name: service-account-lookup
-      value: "true"
-    - name: service-account-extend-token-expiration
-      value: "false"
-    - name: tls-min-version
-      value: "VersionTLS12"
-    - name: tls-cipher-suites
-      value: "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
-```
-
-Add inside the `extraVolumes` block:
-```yaml
-apiServer:
-  extraVolumes:
-    - name: encryption-config
-      hostPath: /etc/kubernetes/encryption
-      mountPath: /etc/kubernetes/encryption
-      readOnly: true
-      pathType: Directory
-```
-
 ## 10.3 Controller Manager
 Edit `/etc/kubernetes/config/kubeadm-config.yaml`.
 
