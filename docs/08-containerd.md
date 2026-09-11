@@ -60,12 +60,14 @@ setup the folder:
 install -d -o root -g root -m 0755 /etc/containerd
 ```
 
-Create the configuration. `/etc/containerd/config.toml`:
+Create the configuration. `/etc/containerd/config.toml`. Most of the properties here are defaults. I like to be explicit here:
 ```toml
 version = 4
 
 root = "/var/lib/containerd"
 state = "/run/containerd"
+
+imports = ["/etc/containerd/conf.d/*.toml"]
 
 [plugins.'io.containerd.server.v1.grpc']
   address = "/run/containerd/containerd.sock"
@@ -77,6 +79,22 @@ state = "/run/containerd"
 
 [plugins.'io.containerd.server.v1.metrics']
   address = ""
+```
+
+Protect it:
+```
+chown root:root /etc/containerd/config.toml && chmod 0640 /etc/containerd/config.toml
+```
+
+### 8.3.2 Drop-in config
+For the rest of the TOML config, we will be creating a drop-in file. Create:
+```
+install -d -o root -g root -m 0755 /etc/containerd/conf.d
+```
+
+In here, create `/etc/containerd/conf.d/10-containerd_dropin.toml`
+```toml
+version = 4
 
 [plugins.'io.containerd.cri.v1.images']
   snapshotter = "overlayfs"
@@ -84,13 +102,12 @@ state = "/run/containerd"
   [plugins.'io.containerd.cri.v1.images'.registry]
     config_path = "/etc/containerd/certs.d"
 
+
 [plugins.'io.containerd.cri.v1.runtime']
-  disable_cgroup = false
   disable_apparmor = false
   unset_seccomp_profile = ""
   enable_unprivileged_ports = false
   enable_unprivileged_icmp = false
-  enable_cdi = false
 
   [plugins.'io.containerd.cri.v1.runtime'.containerd]
     default_runtime_name = "runc"
@@ -106,11 +123,13 @@ state = "/run/containerd"
         BinaryName = "/usr/local/sbin/runc"
         SystemdCgroup = true
 
+
 [plugins.'io.containerd.grpc.v1.cri']
   disable_tcp_service = true
   stream_server_address = "127.0.0.1"
   stream_server_port = "0"
   enable_tls_streaming = false
+
 
 [plugins.'io.containerd.nri.v1.nri']
   disable = true
@@ -118,10 +137,14 @@ state = "/run/containerd"
 
 Protect it:
 ```
-chown root:root /etc/containerd/config.toml
-chmod 0640 /etc/containerd/config.toml
+chown root:root /etc/containerd/conf.d/10-containerd_dropin.toml && chmod 0640 /etc/containerd/conf.d/10-containerd_dropin.toml
 ```
-### 8.3.2 Systemd
+### 8.3.3 certs folder
+Create the certs folder:
+```
+install -d -o root -g root -m 0755 /etc/containerd/certs.d
+```
+### 8.3.4 Systemd
 create `/etc/systemd/system/containerd.service`
 ```ini
 [Unit]
@@ -152,13 +175,7 @@ Protect it:
 chown root:root /etc/systemd/system/containerd.service && chmod 0644 /etc/systemd/system/containerd.service
 ```
 
-### 8.3.3 certs folder
-Create the certs folder:
-```
-install -d -o root -g root -m 0755 /etc/containerd/certs.d
-```
-
-### 8.3.4 Start containerd
+### 8.3.5 Start containerd
 Enable containerd:
 ```
 systemctl daemon-reload
