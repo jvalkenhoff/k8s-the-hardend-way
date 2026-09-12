@@ -1,381 +1,228 @@
-## 14.1 Verify Encryption at Rest
+# 14 Post-install checks
 
-### 14.1.1 Create a synthetic Secret
-Use a deliberately recognizable test value:
-```bash
-kubectl create secret generic thew-encryption-test --namespace default --from-literal=marker='THEW_ENCRYPTION_TEST_VALUE'
-```
+This chapter validates the completed two-node cluster:
 
-Expected:
 ```text
-secret/thew-encryption-test created
+controlplane    control-plane node
+node01          worker node
 ```
 
-Check that the Kubernetes API can read it:
+Unless stated otherwise, run `kubectl` commands from `controlplane`. Run node-local commands on the node specified in each section.
+
+## 14.1 Verify encryption at rest
+
+Create a Secret with a recognizable value:
+
 ```bash
-kubectl get secret thew-encryption-test --namespace default -o jsonpath='{.data.marker}' | base64 -d
+kubectl create secret generic thew-encryption-test \
+  --namespace default \
+  --from-literal=marker='THEW_ENCRYPTION_TEST_VALUE'
+```
+
+Confirm that the API server can read and transparently decrypt it:
+
+```bash
+kubectl get secret thew-encryption-test \
+  --namespace default \
+  -o jsonpath='{.data.marker}' \
+  | base64 -d
 ```
 
 Expected:
+
 ```text
 THEW_ENCRYPTION_TEST_VALUE
 ```
 
-This proves the API server can transparently decrypt the Secret.
+Now bypass the API server and read the raw value from etcd:
 
-### 14.1.2 Read the Secret directly from etcd
-We now bypass the Kubernetes API server and query etcd itself.
-
-Run:
 ```bash
-kubectl exec \
-  -n kube-system \
-  etcd-controlplane \
-  -- etcdctl \
+kubectl exec -n kube-system etcd-controlplane -- \
+  etcdctl \
     --endpoints=https://127.0.0.1:2379 \
     --cacert=/etc/kubernetes/pki/etcd/ca.crt \
     --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt \
     --key=/etc/kubernetes/pki/etcd/healthcheck-client.key \
     get /registry/secrets/default/thew-encryption-test \
   > /tmp/thew-encryption-test.raw
-```
 
-This path:
-```text
-/registry/secrets/default/thew-encryption-test
-```
-
-is the actual etcd key used for that Kubernetes Secret.
-
-Kubernetes' own encryption-at-rest verification procedure recommends creating a Secret and then retrieving its raw value directly with `etcdctl`.
-### 14.1.3 Prove the encryption prefix exists
-Search the raw data:
-```bash
 grep -aF 'k8s:enc:secretbox:v1:' /tmp/thew-encryption-test.raw
 ```
 
-You should see the encryption marker embedded in the binary data.
+The raw value should contain:
 
-The important part is:
 ```text
 k8s:enc:secretbox:v1:
 ```
 
-Conceptually:
-```text
-etcd value
+This confirms that etcd stores the Secret with the configured `secretbox` encryption provider rather than as plaintext.
 
-k8s:enc:secretbox:v1:key1:<ciphertext>
-                 │
-                 └── encrypted by our configured provider
-```
+Clean up:
 
-Kubernetes uses an encryption marker in stored values so the API server knows which provider/key is required to decrypt the object. The Kubernetes documentation demonstrates the same verification method for its encryption providers.
-
-### 14.1.4 Remove test data
-The test is complete:
 ```bash
-kubectl delete secret \
-  thew-encryption-test \
-  --namespace default
-```
-
-Remove our raw temporary copy:
-```bash
+kubectl delete secret thew-encryption-test --namespace default
 rm -f /tmp/thew-encryption-test.raw
 ```
 
-## 14.2 kubeconfigs
-### 14.2.1 Inspection
-We can inspect the embedded certificates without exposing their private keys.
+## 14.2 Verify kubeconfig identities
 
-For `admin.conf`:
+Inspect the client identities embedded in the administrative kubeconfigs:
+
 ```bash
-kubectl config view \
-  --kubeconfig=/etc/kubernetes/admin.conf \
-  --raw \
-  -o jsonpath='{.users[0].user.client-certificate-data}' \
-  | base64 -d \
-  | openssl x509 -noout -subject
+for kubeconfig in admin.conf super-admin.conf; do
+  echo "${kubeconfig}:"
+  kubectl config view \
+    --kubeconfig="/etc/kubernetes/${kubeconfig}" \
+    --raw \
+    -o jsonpath='{.users[0].user.client-certificate-data}' \
+    | base64 -d \
+    | openssl x509 -noout -subject
+done
 ```
 
-Expected identity:
+Expected identities:
+
 ```text
-CN = kubernetes-admin
-O = kubeadm:cluster-admins
+admin.conf:       CN = kubernetes-admin, O = kubeadm:cluster-admins
+super-admin.conf: CN = kubernetes-super-admin, O = system:masters
 ```
 
-Now inspect `super-admin.conf`:
-```bash
-kubectl config view \
-  --kubeconfig=/etc/kubernetes/super-admin.conf \
-  --raw \
-  -o jsonpath='{.users[0].user.client-certificate-data}' \
-  | base64 -d \
-  | openssl x509 -noout -subject
-```
+`admin.conf` receives `cluster-admin` privileges through RBAC. `super-admin.conf` belongs to the special `system:masters` group, which bypasses normal authorization checks.
 
-Expected:
 ```text
-CN = kubernetes-super-admin
-O = system:masters
+admin.conf         root-only cluster administration
+super-admin.conf   emergency RBAC recovery only
 ```
 
-### 14.2.2 Understand the difference
-`admin.conf` is highly privileged:
-```text
-kubernetes-admin
-        ↓
-kubeadm:cluster-admins
-        ↓
-RBAC ClusterRoleBinding
-        ↓
-cluster-admin
-```
+## 14.3 Verify the PKI lifecycle
 
-But authorization still passes through Kubernetes RBAC.
+### 14.3.1 Kubeadm-managed certificates
 
-`super-admin.conf` is different:
-```text
-kubernetes-super-admin
-        ↓
-system:masters
-        ↓
-authorization layer bypass
-```
+Run on `controlplane`:
 
-`system:masters` is a special break-glass group that bypasses normal authorization checks. Kubernetes explicitly warns against sharing this credential.
-
-Therefore our operating rule is:
-```text
-admin.conf: root-only cluster administration
-
-super-admin.conf: emergency / RBAC recovery only
-```
-
----
-## 14.3 PKI Lifecycle
-### 14.3.1 kubeadm-managed certificates
-
-Run:
 ```bash
 kubeadm certs check-expiration
 ```
 
-Kubeadm checks the certificates in its local PKI and the client certificates embedded in its generated kubeconfigs.
-
-You should see certificates such as:
+For a newly initialized cluster, expect approximately:
 
 ```text
-admin.conf
-super-admin.conf
-apiserver
-apiserver-etcd-client
-apiserver-kubelet-client
-controller-manager.conf
-etcd-healthcheck-client
-etcd-peer
-etcd-server
-front-proxy-client
-scheduler.conf
+leaf certificates    1 year
+CA certificates      10 years
 ```
 
-and certificate authorities:
+These are the kubeadm v1beta4 defaults unless `certificateValidityPeriod` or `caCertificateValidityPeriod` was overridden.
 
-```text
-ca
-etcd-ca
-front-proxy-ca
-```
-
-For a freshly initialized cluster, expect approximately:
-
-```text
-leaf certificates      ~1 year remaining
-CA certificates         ~10 years remaining
-```
-
-Kubeadm v1beta4 defaults to:
-
-```text
-certificateValidityPeriod     8760h    = 1 year
-caCertificateValidityPeriod   87600h   = 10 years
-```
-
-unless explicitly overridden.
-### 14.3.2 Inspect the control-plane certificate relationships
-
-Check a few representative certificates:
+Inspect representative certificate chains:
 
 ```bash
-openssl x509 -in /etc/kubernetes/pki/apiserver.crt -noout -subject -issuer -dates
+for certificate in \
+  apiserver.crt \
+  apiserver-etcd-client.crt \
+  front-proxy-client.crt
+do
+  echo "${certificate}:"
+  openssl x509 \
+    -in "/etc/kubernetes/pki/${certificate}" \
+    -noout -subject -issuer -dates
+done
 ```
 
-Then:
-```bash
-openssl x509 -in /etc/kubernetes/pki/apiserver-etcd-client.crt -noout -subject -issuer -dates
-```
+Verify these relationships:
 
-And:
-```bash
-openssl x509 -in /etc/kubernetes/pki/front-proxy-client.crt -noout -subject -issuer -dates
-```
+| Certificate | Issuer |
+|---|---|
+| `apiserver.crt` | Kubernetes CA |
+| `apiserver-etcd-client.crt` | etcd CA |
+| `front-proxy-client.crt` | front-proxy CA |
 
-The important relationships are:
-```text
-apiserver.crt
-      ↓
-Kubernetes CA
+### 14.3.2 Kubelet client certificate rotation
 
+Run on both `controlplane` and `node01`:
 
-apiserver-etcd-client.crt
-      ↓
-etcd CA
-
-
-front-proxy-client.crt
-      ↓
-front-proxy CA
-```
-
-### 14.3.3 Verify kubelet client certificate rotation
-The kubelet is different from the control-plane certificates.
-
-Check the current client certificate:
 ```bash
 ls -l /var/lib/kubelet/pki/kubelet-client-current.pem
-```
 
-Then:
-```bash
-openssl x509 -in /var/lib/kubelet/pki/kubelet-client-current.pem -noout -subject -issuer -dates
-```
+openssl x509 \
+  -in /var/lib/kubelet/pki/kubelet-client-current.pem \
+  -noout -subject -issuer -dates
 
-The subject should identify the node:
-```text
-system:node:controlplane
-```
-
-Check how `kubelet.conf` references it:
-```bash
 grep -E 'client-certificate:|client-key:' /etc/kubernetes/kubelet.conf
 ```
 
-Expected references include:
+The certificate subject must match the node:
+
 ```text
-/var/lib/kubelet/pki/kubelet-client-current.pem
+controlplane    system:node:controlplane
+node01          system:node:node01
 ```
 
-Kubeadm intentionally excludes the kubelet client certificate from normal `kubeadm certs check-expiration` management because the kubelet rotates it automatically.
+`kubelet.conf` should reference `/var/lib/kubelet/pki/kubelet-client-current.pem`. With `rotateCertificates: true`, the kubelet requests and activates a new client certificate automatically as the current one approaches expiry. Kubeadm therefore excludes it from `kubeadm certs check-expiration` management.
 
-We already configured:
-```yaml
-rotateCertificates: true
-```
+### 14.3.3 Kubelet serving certificate rotation
 
-so the lifecycle is:
-```text
-current certificate approaches expiration
-                ↓
-kubelet creates CSR
-                ↓
-controller approves valid client CSR
-                ↓
-new certificate issued
-                ↓
-kubelet switches certificate
-```
+Run on both nodes:
 
-Kubernetes normally starts this renewal while roughly 10–30% of the certificate lifetime remains.
-
-No manual renewal is required during normal operation.
-
----
-
-## 14.4 Verify kubelet serving-certificate lifecycle
-Now inspect the certificate we manually approved earlier:
 ```bash
 ls -l /var/lib/kubelet/pki/kubelet-server-current.pem
+
+openssl x509 \
+  -in /var/lib/kubelet/pki/kubelet-server-current.pem \
+  -noout -subject -issuer -dates -ext subjectAltName
 ```
 
-Then:
-```bash
-openssl x509 -in /var/lib/kubelet/pki/kubelet-server-current.pem -noout -subject -issuer -dates -ext subjectAltName
+With `serverTLSBootstrap: true`, each kubelet requests a signed serving certificate. Unlike kubelet client CSRs, Kubernetes has no built-in automatic approver for serving CSRs because the requested node identity and SANs must be verified.
+
+Future rotations follow this process:
+
 ```
-
-This certificate is also rotatable because we configured:
-```yaml
-serverTLSBootstrap: true
-```
-
-But there is one critical difference:
-
-```text
-CLIENT certificate CSR
+serving certificate nears expiry
         ↓
-built-in approval possible
-
-
-SERVING certificate CSR
+kubelet submits a new CSR
         ↓
-NO built-in automatic approval
+operator verifies node identity and SANs
+        ↓
+operator approves the CSR
 ```
 
-Kubernetes deliberately does not automatically approve kubelet serving certificates because the requested IP/DNS SANs must be verified against the node.
+## 14.4 Verify exposure and authentication
 
-Therefore future rotation looks like:
+### 14.4.1 Inspect listening ports
 
-```text
-kubelet serving certificate nears expiry
-                ↓
-new kubelet-serving CSR
-                ↓
-Pending
-                ↓
-operator verifies identity + SANs
-                ↓
-manual approval
-                ↓
-new certificate
-```
+Run on both `controlplane` and `node01`:
 
----
-## 14.5 Exposure and Live Endpoints
-### 14.5.1 Inspect all listening TCP sockets
-Run on `controlplane`:
 ```bash
 ss -lntp
 ```
 
-For a more focused view:
+On `controlplane`, focus on the control-plane and kubelet ports:
+
 ```bash
 ss -lntp | grep -E ':(2379|2380|6443|10249|10250|10256|10257|10259)\b'
 ```
 
-Do not remediate anything yet.
+On `node01`, focus on the kubelet and Kubernetes networking ports:
 
-We first identify which endpoints are:
-```text
-loopback-only
-node-network accessible
-unexpected
-```
-
-### 14.5.2 Verify etcd rejects unauthenticated access
-We can demonstrate that merely reaching etcd is insufficient.2
-Try:
 ```bash
-curl --cacert /etc/kubernetes/pki/etcd/ca.crt https://127.0.0.1:2379/health
+ss -lntp | grep -E ':(10249|10250|10256)\b'
 ```
 
-Because we configured:
-```text
---client-cert-auth=true
+Confirm that each listener is expected and bound to loopback or the node network as intended.
+
+### 14.4.2 Verify etcd client-certificate authentication
+
+Run on `controlplane`. First attempt an unauthenticated request:
+
+```bash
+curl \
+  --cacert /etc/kubernetes/pki/etcd/ca.crt \
+  https://127.0.0.1:2379/health
 ```
 
-a request without a valid client certificate should fail rather than return normal etcd health data.
+Because etcd uses `--client-cert-auth=true`, this request should fail.
 
-Now perform the authenticated request:
+Repeat it with a valid client certificate:
+
 ```bash
 curl \
   --cacert /etc/kubernetes/pki/etcd/ca.crt \
@@ -384,37 +231,24 @@ curl \
   https://127.0.0.1:2379/health
 ```
 
-Expected response contains:
+Expected response:
+
 ```json
 {"health":"true"}
 ```
 
-The exact formatting may vary slightly.
+This confirms that reaching the etcd endpoint is insufficient without a trusted client certificate.
 
-This proves:
-```text
-network reachability
-        ≠
-etcd authorization
-```
+## 14.5 Verify NetworkPolicy enforcement
 
-A valid etcd client certificate is required.
+Create a disposable namespace with a server and client. The scheduler can place the workloads on `node01`; no control-plane tolerations are needed.
 
----
-
-## NetworkPolicy
-### Create a disposable test namespace
-
-Because `controlplane` is still the only node and has the normal control-plane taint, our test Pods need a toleration.
-
-Create:
 ```bash
 cat > /root/calico/netpol-test.yaml <<'EOF'
 apiVersion: v1
 kind: Namespace
 metadata:
   name: thew-netpol-test
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -431,16 +265,11 @@ spec:
       labels:
         role: server
     spec:
-      tolerations:
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
       containers:
         - name: nginx
           image: nginx:1.29.1-alpine
           ports:
             - containerPort: 80
-
 ---
 apiVersion: v1
 kind: Pod
@@ -450,61 +279,31 @@ metadata:
   labels:
     role: client
 spec:
-  tolerations:
-    - key: node-role.kubernetes.io/control-plane
-      operator: Exists
-      effect: NoSchedule
   containers:
     - name: client
       image: busybox:1.37.0
-      command:
-        - sleep
-        - "3600"
+      command: ["sleep", "3600"]
 EOF
-```
 
-Apply:
-```bash
 kubectl apply -f /root/calico/netpol-test.yaml
+kubectl wait -n thew-netpol-test \
+  --for=condition=Ready pod --all --timeout=120s
+
+SERVER_IP="$(kubectl get pod -n thew-netpol-test \
+  -l role=server -o jsonpath='{.items[0].status.podIP}')"
 ```
 
-Wait:
-```bash
-kubectl wait -n thew-netpol-test --for=condition=Ready pod --all --timeout=120s
-```
-
-### Prove the default is allow
-
-Get the server IP:
+### 14.5.1 Confirm default-allow behavior
 
 ```bash
-SERVER_IP="$(kubectl get pod -n thew-netpol-test -l role=server -o jsonpath='{.items[0].status.podIP}')"
-
-echo "${SERVER_IP}"
+kubectl exec -n thew-netpol-test client -- \
+  wget -T 3 -qO- "http://${SERVER_IP}"
 ```
 
-From the client:
+The nginx page should be returned. Without a selecting NetworkPolicy, Kubernetes allows ingress and egress by default.
 
-```bash
-kubectl exec -n thew-netpol-test client -- wget -T 3 -qO- "http://${SERVER_IP}"
-```
+### 14.5.2 Apply default-deny
 
-You should receive the nginx page.
-
-This demonstrates Kubernetes' default behavior:
-
-```text
-no NetworkPolicy selects Pod
-        ↓
-ingress allowed
-egress allowed
-```
-
-CIS specifically warns that namespaces without NetworkPolicies effectively allow unrestricted Pod traffic.
-
-### Apply default-deny
-
-Create:
 ```bash
 cat > /root/calico/default-deny.yaml <<'EOF'
 apiVersion: networking.k8s.io/v1
@@ -518,29 +317,19 @@ spec:
     - Ingress
     - Egress
 EOF
-```
 
-Apply:
-```bash
 kubectl apply -f /root/calico/default-deny.yaml
+
+kubectl exec -n thew-netpol-test client -- \
+  wget -T 3 -qO- "http://${SERVER_IP}"
 ```
 
-This is the standard Kubernetes default-deny model for both ingress and egress.
+The request should time out or fail, proving that Calico enforces the policy.
 
-Test again:
+### 14.5.3 Allow client-to-server traffic and DNS
 
-```bash
-kubectl exec -n thew-netpol-test client -- wget -T 3 -qO- "http://${SERVER_IP}"
-```
+Because the client is egress-isolated and the server is ingress-isolated, allow both sides of the application path. Also permit DNS egress explicitly.
 
-This time it should **time out / fail**.
-
-That proves Calico is actually enforcing the policy rather than merely accepting the API object.
-
-### Explicitly allow client → server
-Now restore only the intended application path.
-
-#### Server ingress
 ```bash
 cat > /root/calico/allow-client-server.yaml <<'EOF'
 apiVersion: networking.k8s.io/v1
@@ -562,12 +351,11 @@ spec:
       ports:
         - protocol: TCP
           port: 80
-
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-client-egress-to-server
+  name: allow-client-egress
   namespace: thew-netpol-test
 spec:
   podSelector:
@@ -583,58 +371,6 @@ spec:
       ports:
         - protocol: TCP
           port: 80
-EOF
-```
-
-Apply:
-
-```bash
-kubectl apply -f /root/calico/allow-client-server.yaml
-```
-
-Test:
-
-```bash
-kubectl exec -n thew-netpol-test client -- wget -T 3 -qO- "http://${SERVER_IP}"
-```
-
-The nginx page should work again.
-
-The effective model is now:
-
-```text
-client
-   │
-   │ TCP/80
-   ▼
-server          ALLOWED
-
-
-anything else
-   │
-   X
-server          DENIED
-```
-
-### Explicitly allow DNS
-
-Our default-deny also blocks DNS.
-
-Create:
-```bash
-cat > /root/calico/allow-dns.yaml <<'EOF'
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-dns
-  namespace: thew-netpol-test
-spec:
-  podSelector:
-    matchLabels:
-      role: client
-  policyTypes:
-    - Egress
-  egress:
     - to:
         - namespaceSelector:
             matchLabels:
@@ -648,46 +384,38 @@ spec:
         - protocol: TCP
           port: 53
 EOF
+
+kubectl apply -f /root/calico/allow-client-server.yaml
 ```
 
-Apply:
+Verify both permitted paths:
 
 ```bash
-kubectl apply -f /root/calico/allow-dns.yaml
+kubectl exec -n thew-netpol-test client -- \
+  wget -T 3 -qO- "http://${SERVER_IP}"
+
+kubectl exec -n thew-netpol-test client -- \
+  nslookup kubernetes.default.svc.cluster.local
 ```
 
-Test:
+Both should succeed. This also demonstrates that DNS must be permitted explicitly with default-deny egress.
 
-```bash
-kubectl exec -n thew-netpol-test client -- nslookup kubernetes.default.svc.cluster.local
-```
-
-That should now succeed.
-
-This illustrates an important default-deny lesson:
-
-> DNS is egress too.
-
-If you isolate workload egress without explicitly considering DNS, applications often appear to "randomly" break.
-
-### Clean up the test
-
-Once all three tests behaved correctly:
+Clean up:
 
 ```bash
 kubectl delete namespace thew-netpol-test
 ```
 
-## Cross-node pod connectivity
+## 14.6 Verify cross-node connectivity and WireGuard
 
-On `controlplane`:
+Create one Pod on each node:
+
 ```bash
 cat > /root/calico/cross-node-test.yaml <<'EOF'
 apiVersion: v1
 kind: Namespace
 metadata:
   name: thew-network-test
-
 ---
 apiVersion: v1
 kind: Pod
@@ -705,7 +433,6 @@ spec:
     - name: test
       image: busybox:1.37.0
       command: ["sleep", "3600"]
-
 ---
 apiVersion: v1
 kind: Pod
@@ -720,93 +447,56 @@ spec:
       image: busybox:1.37.0
       command: ["sleep", "3600"]
 EOF
-```
 
-Apply:
-```bash
 kubectl apply -f /root/calico/cross-node-test.yaml
-```
-
-Wait:
-```bash
-kubectl wait -n thew-network-test --for=condition=Ready pod --all --timeout=120s
-```
-
-Check placement:
-```bash
+kubectl wait -n thew-network-test \
+  --for=condition=Ready pod --all --timeout=120s
 kubectl get pods -n thew-network-test -o wide
 ```
 
-We specifically want:
-```text
-pod-controlplane    → controlplane
-pod-node01          → node01
-```
+Confirm that `pod-controlplane` runs on `controlplane` and `pod-node01` on `node01`.
 
----
+Store both Pod IPs on `controlplane`:
 
-### Test
-
-Get both addresses:
 ```bash
-CP_POD_IP="$(kubectl get pod -n thew-network-test pod-controlplane -o jsonpath='{.status.podIP}')"
+CP_POD_IP="$(kubectl get pod -n thew-network-test pod-controlplane \
+  -o jsonpath='{.status.podIP}')"
 
-NODE01_POD_IP="$(kubectl get pod -n thew-network-test pod-node01 -o jsonpath='{.status.podIP}')"
+NODE01_POD_IP="$(kubectl get pod -n thew-network-test pod-node01 \
+  -o jsonpath='{.status.podIP}')"
 ```
 
-Test control plane → worker:
+Test traffic in both directions:
+
 ```bash
-kubectl exec -n thew-network-test pod-controlplane -- ping -c 4 "${NODE01_POD_IP}"
+kubectl exec -n thew-network-test pod-controlplane -- \
+  ping -c 4 "${NODE01_POD_IP}"
+
+kubectl exec -n thew-network-test pod-node01 -- \
+  ping -c 4 "${CP_POD_IP}"
 ```
 
-Then worker → control plane:
-```bash
-kubectl exec -n thew-network-test pod-node01 -- ping -c 4 "${CP_POD_IP}"
-```
+Both tests should succeed, validating Calico IPAM, cross-node routing and host firewall forwarding.
 
-Both should succeed.
-
-That proves:
-
-```text
-Calico IPAM              working
-cross-node routing       working
-FORWARD DROP integration working
-```
-
-### Inspect the WireGuard route
+Finally, verify the encrypted route on each node.
 
 On `controlplane`:
+
 ```bash
 ip route get "${NODE01_POD_IP}"
 ```
 
-With WireGuard active between both nodes, the remote workload path should use:
-```text
-wireguard.cali
-```
+On `node01`, copy the control-plane Pod IP obtained above:
 
-Check the reverse path on `node01` using the control-plane Pod IP:
 ```bash
+CP_POD_IP='<control-plane-pod-IP>'
 ip route get "${CP_POD_IP}"
 ```
 
-Again, we expect:
-```text
-wireguard.cali
-```
+Both remote workload routes should use Calico's `wireguard.cali` interface.
 
-Calico's default IPv4 WireGuard interface is `wireguard.cali`, and its default listening port is UDP `51820`.
-### Clean up
+Clean up the namespace, but retain the manifest for future validation:
 
-Once verified:
 ```bash
 kubectl delete namespace thew-network-test
 ```
-
-Keep:
-```text
-/root/calico/cross-node-test.yaml
-```
-
-as a repeatable network validation test.
