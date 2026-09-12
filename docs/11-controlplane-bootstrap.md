@@ -1,9 +1,16 @@
+
+> [!NOTE]
+> This chapter is only on the `controlplane`
 ## 11.1 Preflight checks
 Run:
 ```bash
 kubeadm init phase preflight --config /tmp/kubeadm-init.yaml
 ```
 
+The preflight check may error on the fact that `/var/lib/etcd` is not empty. Contains most likely `lost+found`. Remove it:
+```
+if [ -d /var/lib/etcd/lost+found ]; then rmdir /var/lib/etcd/lost+found fi
+```
 ## 11.2 Pre-pull the control-plane images
 Before modifying the node, pull everything kubeadm requires:
 ```bash
@@ -60,12 +67,11 @@ Some containers may restart a few times, but they should settle into `Running`.
 
 ---
 ## 11.4 Kubeconfig
+### 11.4.1 Add to config
 Configure the current user's kubeconfig normally:
 ```
 mkdir -p "$HOME/.kube"
-
 cp -i /etc/kubernetes/admin.conf "$HOME/.kube/config"
-
 chown "$(id -u):$(id -g)" "$HOME/.kube/config"
 ```
 
@@ -101,6 +107,41 @@ kube-scheduler-controlplane
 
 CoreDNS may remain `Pending` until cluster networking exists.
 
+### 11.4.2 Alias
+Set `kubectl` alias in `~/.bashrc`
+```
+alias k='kubectl'
+```
+
+Reload bash:
+```
+source ~/.bashrc
+```
+
+check if it works:
+```
+k get nodes -o wide
+```
+
+### 11.4.3 vimrc
+Make sure vimrc config is set to support yaml files. Create `~/.vimrc`:
+```
+" Enable syntax highlighting
+syntax on
+
+" Detect file types
+filetype plugin indent on
+
+" Kubernetes / YAML indentation
+autocmd FileType yaml setlocal expandtab
+autocmd FileType yaml setlocal shiftwidth=2
+autocmd FileType yaml setlocal softtabstop=2
+autocmd FileType yaml setlocal tabstop=2
+autocmd FileType yaml setlocal autoindent
+```
+
+
+
 ---
 ## 11.5 Validate and Trust the Kubelet Serving Certificate
 
@@ -127,10 +168,13 @@ If there are multiple, grab the latest:
 kubectl get csr --sort-by=.metadata.creationTimestamp
 ```
 
+```
+KUBELET_CSR=$(kubectl get csr --sort-by=.metadata.creationTimestamp --no-headers | tail -1 | awk '{print $1}')
+```
 ### 11.5.1 Verify who requested it
 Run:
 ```bash
-kubectl get csr csr-f24br -o jsonpath='{.spec.request}' | base64 -d | openssl req -noout -text
+kubectl get csr $KUBELET_CSR -o jsonpath='{.spec.request}' | base64 -d | openssl req -noout -text
 ```
 
 You want to see:
@@ -146,7 +190,7 @@ Subject Alternative Name:
 
 Run:
 ```bash
-kubectl get csr csr-sfj4t -oyaml
+kubectl get csr $KUBELET_CSR -oyaml
 ```
 
 The important properties are:
@@ -160,12 +204,12 @@ usage         server auth
 ### 11.5.2 Approve the CSR
 Only after those checks succeed:
 ```bash
-kubectl certificate approve csr-sfj4t
+kubectl certificate approve $KUBELET_CSR
 ```
 
 Then:
 ```bash
-kubectl get csr csr-sfj4t
+kubectl get csr $KUBELET_CSR
 ```
 
 Expected:
@@ -188,17 +232,7 @@ Inspect it:
 openssl x509 -in /var/lib/kubelet/pki/kubelet-server-current.pem -noout -subject -issuer -ext subjectAltName -ext extendedKeyUsage
 ```
 
-We want to see the Kubernetes CA as issuer and identities belonging to this node.
-
-Conceptually:
-```text
-Kubernetes CA
-      │
-      └── kubelet serving certificate
-              │
-              ├── controlplane
-              └── 172.31.88.10
-```
+We want to see the Kubernetes CA as issuer and identities belonging to this node (`controlplane` or `node01`).
 
 ---
 ## 11.6 Add kubelet CA verification to kubeadm configuration
