@@ -214,3 +214,6 @@ Remove the binaries:
 ```
 rm -rf /tmp/binaries
 ```
+
+> [!IMPORTANT]
+> Chapter 9, 10, 11 and 12 will only be on the `controlplane` node
