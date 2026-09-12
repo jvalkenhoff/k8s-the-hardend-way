@@ -1,3 +1,8 @@
+
+> [!NOTE]
+> This chapter is only on the `controlplane`
+
+
 Install:
 ```
 apt install socat conntrack ipset kmod -y
@@ -86,7 +91,7 @@ For this build, the expected Debian package version is:
 
 ---
 ## 9.4 Install Kubernetes v1.35.8
-Install:
+Install `controlplane`
 ```bash
 apt install -y cri-tools kubelet="1.35.8-1.1" kubeadm="1.35.8-1.1" kubectl="1.35.8-1.1"
 ```
@@ -96,7 +101,6 @@ Confirm the Kubernetes binaries:
 kubeadm version
 kubelet --version
 kubectl version --client
-crictl version
 ```
 
 The three Kubernetes binaries must report:
@@ -130,14 +134,16 @@ crictl version
 
 Must return:
 ```text
-v1.35.8
+v2.3.5
 ```
 
 ---
-## 9.6 Adjust the firewall
+## 9.6 firewall
+
+### 9.6.1 Firewall rules
 The nodes need inbound and outbound connections in order to allow kubelet, kube-apiserver and etcd.
 
-For `controlplane`, add the following rules:
+For `controlplane`, add the following rules BEFORE any logging rule:
 ```
 # ----------------------------------------------------------------------
 # INPUT
@@ -153,6 +159,9 @@ For `controlplane`, add the following rules:
 
 # Kubelet API
 -A INPUT -s 172.31.88.0/28 -p tcp --dport 10250 -m conntrack --ctstate NEW -j ACCEPT
+
+# Typha INBOUND
+-A INPUT -p tcp -s 172.31.88.11 -d 172.31.88.10 --dport 5473 -m conntrack --ctstate NEW -j ACCEPT
 
 ...
 
@@ -174,36 +183,22 @@ For `controlplane`, add the following rules:
 # Local kubelet
 -A OUTPUT -d 172.31.88.10/32 -p tcp --dport 10250 -m conntrack --ctstate NEW -j ACCEPT
 
-...
-```
+# Kubernetes host -> locally attached Calico workloads
+#
+# Required with OUTPUT DROP so kubelet can perform
+# readiness/liveness/startup probes against local Pod IPs.
+-A OUTPUT -o cali+ -d 10.244.0.0/16 -m conntrack --ctstate NEW -j ACCEPT
 
-For `node01`, add the following rules:
-```
-# ----------------------------------------------------------------------
-# INPUT
-# ----------------------------------------------------------------------
+# Calico VXLAN - node01
+-A OUTPUT -s 172.31.88.10/32 -d 172.31.88.11/32 -p udp --dport 4789 -m conntrack --ctstate NEW -j ACCEPT
 
-...
-
-# Kubelet API
-# Only the control plane needs to initiate connections to the worker kubelet.
--A INPUT -s 172.31.88.10/32 -p tcp --dport 10250 -m conntrack --ctstate NEW -j ACCEPT
-
-...
-
-# ----------------------------------------------------------------------
-# OUTPUT
-# ----------------------------------------------------------------------
-
-...
-
-# Kubernetes API server
--A OUTPUT -d 172.31.88.10/32 -p tcp --dport 6443 -m conntrack --ctstate NEW -j ACCEPT
+# Calico WireGuard - node01
+-A OUTPUT -s 172.31.88.10/32 -d 172.31.88.11/32 -p udp --dport 51820 -m conntrack --ctstate NEW -j ACCEPT
 
 ...
 ```
 
-### 9.6.1 Save the firewall rules
+### 9.6.2 Save the firewall rules
 Perform a dry run test:
 ```
 iptables-restore --test < /root/iptables.v4
@@ -220,9 +215,7 @@ iptables -S
 iptables -L -n -v
 ```
 
-The default policies for `INPUT`, `FORWARD`, and `OUTPUT` should be `DROP`.
-
-### 9.6.2 Persist the firewall
+### 9.6.3 Persist the firewall
 After applying, run this:
 ```
 iptables-save > /etc/iptables/rules.v4
