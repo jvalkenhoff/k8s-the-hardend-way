@@ -37,8 +37,7 @@ with the generated hash.
 
 Protect the script:
 ```bash
-chown root:root /etc/grub.d/01_users
-chmod 0700 /etc/grub.d/01_users
+chown root:root /etc/grub.d/01_users && chmod 0700 /etc/grub.d/01_users
 ```
 
 ### 5.1.2 Keep normal boots unrestricted
@@ -69,8 +68,7 @@ update-grub
 
 Protect the generated GRUB configuration:
 ```bash
-chown root:root /boot/grub/grub.cfg
-chmod 0600 /boot/grub/grub.cfg
+chown root:root /boot/grub/grub.cfg && chmod 0600 /boot/grub/grub.cfg
 ```
 
 Confirm that the generated configuration contains the user, password hash, and unrestricted normal entries:
@@ -108,8 +106,7 @@ blacklist sctp
 
 Set the ownership and permissions:
 ```bash
-chown root:root /etc/modprobe.d/net-blacklist.conf
-chmod 0644 /etc/modprobe.d/net-blacklist.conf
+chown root:root /etc/modprobe.d/net-blacklist.conf && chmod 0644 /etc/modprobe.d/net-blacklist.conf
 ```
 
 Unload them if any are active:
@@ -160,7 +157,45 @@ install udf /bin/false
 blacklist udf
 ```
 
-Reboot the system:
-```bash
-reboot
+### 5.2.3 Enable network modules
+We also need to enable some network modules. This is required during the CNI section, which happens much later.
+Create the following modprobe loading list `/etc/modules.load.d/net-load.conf`:
+```
+cat > /etc/modules-load.d/net-load.conf <<'EOF'
+vxlan
+wireguard
+nf_conntrack
+ip_set
+xt_set
+xt_conntrack
+xt_comment
+xt_addrtype
+xt_mark
+xt_multiport
+ipt_rpfilter
+EOF
+```
+
+Protect it:
+```
+chown root:root /etc/modules-load.d/net-load.conf && chmod 0644 /etc/modules-load.d/net-load.conf
+```
+
+We can reboot the system, or load them immediately:
+```
+for module in \
+  vxlan \
+  wireguard \
+  nf_conntrack \
+  ip_set \
+  xt_set \
+  xt_conntrack \
+  xt_comment \
+  xt_addrtype \
+  xt_mark \
+  xt_multiport \
+  ipt_rpfilter
+do
+  modprobe "${module}" || exit 1
+done
 ```
