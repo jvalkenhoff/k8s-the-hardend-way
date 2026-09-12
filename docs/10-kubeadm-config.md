@@ -1,3 +1,5 @@
+> [!NOTE]
+> This chapter is only on the `controlplane`
 ## 10.1 Base Cluster
 For documentation/organization, I actually like splitting these.
 ```
