@@ -1,157 +1,11 @@
-## 12.1 kernel networking support
-On **both nodes**:
-```bash
-for module in \
-  vxlan \
-  wireguard \
-  nf_conntrack \
-  ip_set \
-  xt_set \
-  xt_conntrack \
-  xt_comment \
-  xt_addrtype \
-  xt_mark \
-  xt_multiport \
-  ipt_rpfilter
-do
-  modprobe "${module}" || exit 1
-done
-```
-
-Expected:
-```text
-No output
-```
-
-These represent the important kernel capabilities needed by our selected Calico dataplane:
-```text
-vxlan             overlay networking
-wireguard         encrypted inter-node traffic
-nf_conntrack      connection tracking
-ip_set / xt_set   Calico policy sets
-xt_*              netfilter matching/actions
-```
-
-## 12.2 firewall
-Our locked firewall architecture persists the baseline in:
-```text
-/etc/iptables/rules.v4
-```
-
-through:
-```text
-netfilter-persistent.service
-```
-
-We currently have default:
-```text
-INPUT    DROP
-OUTPUT   DROP
-FORWARD  DROP
-```
-
-That architecture stays.
-
-We only add the two Calico transports between the two Kubernetes nodes.
- 
-On `controlplane` add the following rules:
-```text
-# ----------------------------------------------------------------------
-# INPUT
-# ----------------------------------------------------------------------
-
-...
-
-# Typha INBOUND
--A INPUT -p tcp -s 172.31.88.11 -d 172.31.88.10 --dport 5473 -m conntrack --ctstate NEW -j ACCEPT
-
-...
-
-# ----------------------------------------------------------------------
-# OUTPUT
-# ----------------------------------------------------------------------
-
-...
-
-# Kubernetes host -> locally attached Calico workloads
-#
-# Required with OUTPUT DROP so kubelet can perform
-# readiness/liveness/startup probes against local Pod IPs.
--A OUTPUT -o cali+ -d 10.244.0.0/16 -m conntrack --ctstate NEW -j ACCEPT
-
-# Calico VXLAN - node01
--A OUTPUT -s 172.31.88.10/32 -d 172.31.88.11/32 -p udp --dport 4789 -m conntrack --ctstate NEW -j ACCEPT
-
-# Calico WireGuard - node01
--A OUTPUT -s 172.31.88.10/32 -d 172.31.88.11/32 -p udp --dport 51820 -m conntrack --ctstate NEW -j ACCEPT
-
-...
-```
-
-On `node01`, add the following rules:
-```text
-# ----------------------------------------------------------------------
-# INPUT
-# ----------------------------------------------------------------------
-
-...
-
-# Calico VXLAN - controlplane
--A INPUT -s 172.31.88.10/32 -d 172.31.88.11/32 -p udp --dport 4789 -m conntrack --ctstate NEW -j ACCEPT
-
-# Calico WireGuard - controlplane
--A INPUT -s 172.31.88.10/32 -d 172.31.88.11/32 -p udp --dport 51820 -m conntrack --ctstate NEW -j ACCEPT
-
-# ----------------------------------------------------------------------
-# OUTPUT
-# ----------------------------------------------------------------------
-
-...
-
-# Kubernetes host -> locally attached Calico workloads
-#
-# Required with OUTPUT DROP so kubelet can perform
-# readiness/liveness/startup probes against local Pod IPs.
--A OUTPUT -o cali+ -d 10.244.0.0/16 -m conntrack --ctstate NEW -j ACCEPT
-
-# Calico VXLAN - controlplane
--A OUTPUT -s 172.31.88.11/32 -d 172.31.88.10/32 -p udp --dport 4789 -m conntrack --ctstate NEW -j ACCEPT
-
-# Calico WireGuard - controlplane
--A OUTPUT -s 172.31.88.11/32 -d 172.31.88.10/32 -p udp --dport 51820 -m conntrack --ctstate NEW -j ACCEPT
-
-# Typha OUTBOUND
--A OUTPUT -p tcp -s 172.31.88.11 -d 172.31.88.10 --dport 5473 -m conntrack --ctstate NEW -j ACCEPT
-
-...
-```
-### 12.2.1 Validate and load the firewall
-
-On both nodes:
-```bash
-iptables-restore --test /etc/iptables/rules.v4
-```
-
-If there is no error:
-```bash
-iptables-restore /etc/iptables/rules.v4
-```
-
-Then confirm:
-```bash
-iptables -S INPUT | grep -E '4789|51820'
-
-iptables -S OUTPUT | grep -E '4789|51820'
-```
-
-You should see exactly the peer-specific rules we added.
-
-## 12.3 Install Calico
+> [!NOTE]
+> This chapter is only on the `controlplane`
+## 12.1 Calico
+### 12.1.1 Install Calico
 On `controlplane`:
 ```bash
 install -d -o root -g root -m 0700 /root/calico
 ```
-
 
 Download the CRD bundle:
 ```bash
@@ -166,12 +20,12 @@ curl -fL \
   "https://raw.githubusercontent.com/projectcalico/calico/v3.32.1/manifests/tigera-operator.yaml" \
   -o /root/calico/tigera-operator.yaml
 ```
-### 12.3.1 Install the Calico CRDs
+### 12.1.2 Install the Calico CRDs
 Install the Calico CRDs:
 ```bash
 kubectl create -f /root/calico/v1_crd_projectcalico_org.yaml
 ```
-### 12.3.2 Install the Tigera Operator
+### 12.1.3 Install the Tigera Operator
 Now:
 ```bash
 kubectl create -f /root/calico/tigera-operator.yaml
@@ -192,7 +46,7 @@ Expected:
 deployment.apps/tigera-operator condition met
 ```
 
-### 12.3.3 Create Installation resource
+### 12.1.4 Create Installation resource
 Create:
 ```bash
 cat > /root/calico/installation.yaml <<'EOF'
@@ -229,7 +83,7 @@ Protect it:
 ```bash
 chown root:root /root/calico/installation.yaml && chmod 0600 /root/calico/installation.yaml
 ```
-### 12.3.4 Create the Calico installation
+### 12.1.5 Create the Calico installation
 Before creating it, let the API server validate the object without persisting it:
 ```bash
 kubectl create --dry-run=server -f /root/calico/installation.yaml
@@ -269,7 +123,7 @@ Exit `watch` with:
 Ctrl+C
 ```
 
-### 12.3.5 Inspect the actual Calico Pods
+### 12.1.6 Inspect the actual Calico Pods
 Run:
 ```bash
 kubectl get pods -n calico-system -o wide
@@ -289,7 +143,7 @@ kubectl get nodes -o wide
 
 The `controlplane` should change from `NotReady` to `Ready`
 
-### 12.3.6 Verify CoreDNS
+### 12.1.7 Verify CoreDNS
 Now:
 ```bash
 kubectl get pods -n kube-system -o wide
@@ -317,8 +171,8 @@ You should now see Calico's generated CNI configuration, normally:
 10-calico.conflist
 ```
 
-## 12.4 Enable WireGuard
-### 12.4.1 Inspect IP Pools
+## 12.2 Enable WireGuard
+### 12.2.1 Inspect IP Pools
 Run:
 ```bash
 kubectl get ippools.crd.projectcalico.org -o wide
@@ -344,7 +198,7 @@ IP-in-IP      disabled
 NAT outgoing  enabled
 ```
 
-### 12.4.2 Enable WireGuard
+### 12.2.2 Enable WireGuard
 Now that the core Calico installation is healthy, enable IPv4 WireGuard:
 ```bash
 kubectl patch felixconfiguration default --type='merge' -p '{"spec":{"wireguardEnabled":true,"wireguardEnabledV6":false}}'
@@ -363,7 +217,7 @@ wireguardEnabledV6: false
 ```
 
 because this is an IPv4-only cluster.
-### 12.4.3 Verify the WireGuard setting
+### 12.2.3 Verify the WireGuard setting
 Run:
 ```bash
 kubectl get felixconfiguration default -o jsonpath='{.spec.wireguardEnabled}{"\n"}'
